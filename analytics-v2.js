@@ -551,12 +551,7 @@ Plugins: ${data.fingerprint.plugins?.length || 0}
   // ==========================================
 
   setupPeriodicBehavioralSend() {
-    // Отправлять поведенческие данные каждые 30 секунд
-    setInterval(() => {
-      this.sendBehavioralData();
-    }, this.sendInterval);
-
-    // Отправить при закрытии вкладки
+    // Отправить поведенческие данные только при закрытии вкладки (чтобы избежать спама)
     window.addEventListener('beforeunload', () => {
       this.sendBehavioralData();
     });
