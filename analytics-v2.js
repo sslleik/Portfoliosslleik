@@ -21,6 +21,11 @@ class TGKAnalyticsV2 {
     this.debugMode = config.DEBUG_MODE;
     this.sendInterval = config.SEND_INTERVAL;
     
+    // Дневная аналитика
+    this.lastDailySend = parseInt(localStorage.getItem('tgk_last_daily_send') || '0');
+    this.visitCount = parseInt(localStorage.getItem('tgk_visit_count') || '0') + 1;
+    localStorage.setItem('tgk_visit_count', this.visitCount);
+    
     // === ЧАСТЬ 1: МГНОВЕННЫЕ ДАННЫЕ ===
     this.instantData = {
       session: {
@@ -551,7 +556,12 @@ Plugins: ${data.fingerprint.plugins?.length || 0}
   // ==========================================
 
   setupPeriodicBehavioralSend() {
-    // Отправить поведенческие данные только при закрытии вкладки (чтобы избежать спама)
+    // Отправлять поведенческие данные каждый час
+    setInterval(() => {
+      this.sendBehavioralData();
+    }, this.sendInterval);
+
+    // Отправить при закрытии вкладки
     window.addEventListener('beforeunload', () => {
       this.sendBehavioralData();
     });
@@ -570,6 +580,15 @@ Plugins: ${data.fingerprint.plugins?.length || 0}
 
       const message = this.formatBehavioralDataMessage();
       await this.sendToTelegram(message);
+
+      // Проверить, нужно ли отправить дневную сводку
+      if (now - this.lastDailySend > 86400000) { // 24 часа
+        const dailyMessage = this.formatDailyAnalyticsMessage();
+        await this.sendToTelegram(dailyMessage);
+        this.lastDailySend = now;
+        localStorage.setItem('tgk_last_daily_send', now.toString());
+        if (this.debugMode) console.log('📅 Daily analytics sent');
+      }
 
       if (this.debugMode) console.log('📊 Behavioral data sent');
     } catch (e) {
@@ -596,6 +615,20 @@ Plugins: ${data.fingerprint.plugins?.length || 0}
 Просмотров страниц: ${bd.sessionBehavior.pageViewCount}
 Длительность сессии: ${Math.round(bd.sessionBehavior.sessionDuration / 1000)}s
 Новый пользователь: ${!bd.sessionBehavior.isReturning ? '✅' : '❌'}
+`;
+  }
+
+  formatDailyAnalyticsMessage() {
+    return `
+📅 <b>ЕЖЕДНЕВНАЯ СВОДКА АНАЛИТИКИ</b>
+
+<b>📊 Статистика за день:</b>
+Количество посещений: ${this.visitCount}
+Последняя активность: ${new Date().toLocaleString()}
+
+<b>💡 Примечание:</b>
+Это локальная статистика для данного браузера/устройства.
+Для глобальной статистики требуется серверная аналитика.
 `;
   }
 
