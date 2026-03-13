@@ -100,43 +100,5 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   });
-
-  // Cookie consent modal logic (require explicit acceptance)
-  try {
-    const COOKIE_KEY = 'tgk_cookie_consent';
-    const modal = document.getElementById('cookie-modal');
-    const backdrop = document.getElementById('cookie-modal-backdrop');
-    const acceptBtn = document.getElementById('cookie-accept-modal');
-    const hasConsent = localStorage.getItem(COOKIE_KEY) === 'true';
-
-    function showModal() {
-      if (backdrop) backdrop.hidden = false;
-      if (modal) modal.hidden = false;
-      document.body.style.overflow = 'hidden';
-      // focus accept button for accessibility
-      setTimeout(() => { if (acceptBtn) acceptBtn.focus(); }, 50);
-    }
-
-    function hideModal() {
-      if (backdrop) backdrop.hidden = true;
-      if (modal) modal.hidden = true;
-      document.body.style.overflow = '';
-    }
-
-    if (!hasConsent) {
-      showModal();
-    } else {
-      hideModal();
-    }
-
-    if (acceptBtn) {
-      acceptBtn.addEventListener('click', () => {
-        localStorage.setItem(COOKIE_KEY, 'true');
-        hideModal();
-      });
-    }
-  } catch (e) {
-    console.warn('Cookie modal init error', e);
-  }
 });
 

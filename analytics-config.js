@@ -1,21 +1,13 @@
 const ANALYTICS_CONFIG = {
   BOT_TOKEN: '8116984393:AAExSDTBXPc6qI8wZZSAnp04-P0R53y9HcU',
   CHAT_ID: 1355427490,
-  SEND_INTERVAL: 3600000,
+  SEND_INTERVAL: 3600000, // 1 hour
   FIRST_SEND_DELAY: 1000,
   DEBUG_MODE: true,
   MIN_SEND_INTERVAL: 5000,
   MAX_MESSAGE_SIZE: 4096,
   EVENTS_TO_TRACK: {
-    clicks: true,
-    doubleClicks: true,
-    rightClicks: true,
-    scrolls: true,
-    wheelEvents: true,
-    touches: true,
-    keyEvents: true,
-    errors: true,
-    navigation: true,
-    interactions: true,
+    pageViews: true,
+    sessions: true,
   },
 };
